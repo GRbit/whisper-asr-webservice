@@ -1,24 +1,20 @@
-import time
 from io import StringIO
 from threading import Thread
-from typing import BinaryIO, Union
+from typing import Union
 
-import torch
 import whisper
-from whisper.utils import ResultWriter, WriteJSON, WriteSRT, WriteTSV, WriteTXT, WriteVTT
+from whisper.utils import WriteJSON, WriteSRT, WriteTSV, WriteTXT, WriteVTT
 
 from app.asr_models.asr_model import ASRModel
 from app.config import CONFIG
+
+WRITERS = {"srt": WriteSRT, "vtt": WriteVTT, "tsv": WriteTSV, "json": WriteJSON, "txt": WriteTXT}
 
 
 class OpenAIWhisperASR(ASRModel):
 
     def load_model(self):
-
-        if torch.cuda.is_available():
-            self.model = whisper.load_model(name=CONFIG.MODEL_NAME, download_root=CONFIG.MODEL_PATH).cuda()
-        else:
-            self.model = whisper.load_model(name=CONFIG.MODEL_NAME, download_root=CONFIG.MODEL_PATH)
+        self.model = whisper.load_model(name=CONFIG.MODEL_NAME, device=CONFIG.DEVICE, download_root=CONFIG.MODEL_PATH)
 
         Thread(target=self.monitor_idleness, daemon=True).start()
 
@@ -33,12 +29,6 @@ class OpenAIWhisperASR(ASRModel):
         options: Union[dict, None],
         output,
     ):
-        self.last_activity_time = time.time()
-
-        with self.model_lock:
-            if self.model is None:
-                self.load_model()
-
         options_dict = {"task": task}
         if language:
             options_dict["language"] = language
@@ -46,8 +36,8 @@ class OpenAIWhisperASR(ASRModel):
             options_dict["initial_prompt"] = initial_prompt
         if word_timestamps:
             options_dict["word_timestamps"] = word_timestamps
-        with self.model_lock:
-            result = self.model.transcribe(audio, **options_dict)
+        with self.loaded_model() as model:
+            result = model.transcribe(audio, **options_dict)
 
         output_file = StringIO()
         self.write_result(result, output_file, output)
@@ -56,35 +46,18 @@ class OpenAIWhisperASR(ASRModel):
         return output_file
 
     def language_detection(self, audio):
-
-        self.last_activity_time = time.time()
-
-        with self.model_lock:
-            if self.model is None:
-                self.load_model()
-
         # load audio and pad/trim it to fit 30 seconds
         audio = whisper.pad_or_trim(audio)
 
-        # make log-Mel spectrogram and move to the same device as the model
-        mel = whisper.log_mel_spectrogram(audio, self.model.dims.n_mels).to(self.model.device)
-
-        # detect the spoken language
-        with self.model_lock:
-            _, probs = self.model.detect_language(mel)
+        with self.loaded_model() as model:
+            # make log-Mel spectrogram and move to the same device as the model
+            mel = whisper.log_mel_spectrogram(audio, model.dims.n_mels).to(model.device)
+            # detect the spoken language
+            _, probs = model.detect_language(mel)
         detected_lang_code = max(probs, key=probs.get)
 
-        return detected_lang_code, probs[max(probs)]
+        return detected_lang_code, probs[detected_lang_code]
 
-    def write_result(self, result: dict, file: BinaryIO, output: Union[str, None]):
+    def write_result(self, result: dict, file: StringIO, output: Union[str, None]):
         options = {"max_line_width": 1000, "max_line_count": 10, "highlight_words": False}
-        if output == "srt":
-            WriteSRT(ResultWriter).write_result(result, file=file, options=options)
-        elif output == "vtt":
-            WriteVTT(ResultWriter).write_result(result, file=file, options=options)
-        elif output == "tsv":
-            WriteTSV(ResultWriter).write_result(result, file=file, options=options)
-        elif output == "json":
-            WriteJSON(ResultWriter).write_result(result, file=file, options=options)
-        else:
-            WriteTXT(ResultWriter).write_result(result, file=file, options=options)
+        WRITERS.get(output, WriteTXT)(output_dir=None).write_result(result, file=file, options=options)

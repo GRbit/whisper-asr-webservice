@@ -1,6 +1,7 @@
 import gc
 import time
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from threading import Lock
 from typing import Union
 
@@ -17,9 +18,6 @@ class ASRModel(ABC):
     model = None
     model_lock = Lock()
     last_activity_time = time.time()
-
-    def __init__(self):
-        pass
 
     @abstractmethod
     def load_model(self):
@@ -52,6 +50,23 @@ class ASRModel(ABC):
         """
         pass
 
+    @contextmanager
+    def loaded_model(self):
+        """
+        Holds the model lock, (re)loads the model if it was released and yields it.
+        Loading and inference happen under the same lock, so the idle monitor
+        cannot release the model in between.
+        """
+        with self.model_lock:
+            self.last_activity_time = time.time()
+            if self.model is None:
+                self.load_model()
+            try:
+                yield self.model
+            finally:
+                # Count the end of a long-running job as activity too.
+                self.last_activity_time = time.time()
+
     def monitor_idleness(self):
         """
         Monitors the idleness of the ASR model and releases the model if it has been idle for too long.
@@ -60,8 +75,8 @@ class ASRModel(ABC):
             return
         while True:
             time.sleep(15)
-            if time.time() - self.last_activity_time > CONFIG.MODEL_IDLE_TIMEOUT:
-                with self.model_lock:
+            with self.model_lock:
+                if time.time() - self.last_activity_time > CONFIG.MODEL_IDLE_TIMEOUT:
                     self.release_model()
                     break
 
@@ -69,8 +84,7 @@ class ASRModel(ABC):
         """
         Unloads the model from memory and clears any cached GPU memory.
         """
-        del self.model
-        torch.cuda.empty_cache()
-        gc.collect()
         self.model = None
+        gc.collect()
+        torch.cuda.empty_cache()
         print("Model unloaded due to timeout")

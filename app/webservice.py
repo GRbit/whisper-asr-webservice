@@ -53,7 +53,7 @@ async def index():
 
 
 @app.post("/asr", tags=["Endpoints"])
-async def asr(
+def asr(
     audio_file: UploadFile = File(...),  # noqa: B008
     encode: bool = Query(default=True, description="Encode audio first through ffmpeg"),
     task: Union[str, None] = Query(default="transcribe", enum=["transcribe", "translate"]),
@@ -63,28 +63,28 @@ async def asr(
         bool | None,
         Query(
             description="Enable the voice activity detection (VAD) to filter out parts of the audio without speech",
-            include_in_schema=(True if CONFIG.ASR_ENGINE == "faster_whisper" else False),
+            include_in_schema=CONFIG.ASR_ENGINE == "faster_whisper",
         ),
     ] = False,
     word_timestamps: bool = Query(
         default=False,
         description="Word level timestamps",
-        include_in_schema=(True if CONFIG.ASR_ENGINE == "faster_whisper" else False),
+        include_in_schema=CONFIG.ASR_ENGINE == "faster_whisper",
     ),
     diarize: bool = Query(
         default=False,
         description="Diarize the input",
-        include_in_schema=(True if CONFIG.ASR_ENGINE == "whisperx" and CONFIG.HF_TOKEN != "" else False),
+        include_in_schema=CONFIG.ASR_ENGINE == "whisperx" and CONFIG.HF_TOKEN != "",
     ),
     min_speakers: Union[int, None] = Query(
         default=None,
         description="Min speakers in this file",
-        include_in_schema=(True if CONFIG.ASR_ENGINE == "whisperx" else False),
+        include_in_schema=CONFIG.ASR_ENGINE == "whisperx",
     ),
     max_speakers: Union[int, None] = Query(
         default=None,
         description="Max speakers in this file",
-        include_in_schema=(True if CONFIG.ASR_ENGINE == "whisperx" else False),
+        include_in_schema=CONFIG.ASR_ENGINE == "whisperx",
     ),
     output: Union[str, None] = Query(default="txt", enum=["txt", "vtt", "srt", "tsv", "json"]),
 ):
@@ -109,7 +109,7 @@ async def asr(
 
 
 @app.post("/detect-language", tags=["Endpoints"])
-async def detect_language(
+def detect_language(
     audio_file: UploadFile = File(...),  # noqa: B008
     encode: bool = Query(default=True, description="Encode audio first through FFmpeg"),
 ):

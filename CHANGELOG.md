@@ -4,6 +4,19 @@ Changelog
 Unreleased
 ----------
 
+### Fixed
+
+- Fixed `/detect-language` confidence for openai_whisper (returned the probability of the wrong language)
+- Fixed WhisperX `min_speakers`/`max_speakers` being passed to the wrong diarization arguments
+- Fixed WhisperX crash when reloading the model after `MODEL_IDLE_TIMEOUT` unloaded it
+- Fixed race where the idle monitor could unload the model between loading and inference
+- Endpoints no longer block the event loop while transcribing
+- openai_whisper now honours `ASR_DEVICE`
+
+### Changed
+
+- Simplified engine code: shared model-loading helper and output writer lookup
+
 [1.10.0] (2026-08-09)
 ---------------------
 
